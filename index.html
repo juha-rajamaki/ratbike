@@ -528,20 +528,37 @@ function renderHUD(){
     ctx.fillText('WASD/Nuolet - Ohjaus',20,ch-120);ctx.fillText('SHIFT - Spurtti',20,ch-104);ctx.fillText('SPACE - Soittokello',20,ch-88);ctx.fillText('Riko liikennesääntöjä!',20,ch-64);ctx.fillText('Varo poliisia!',20,ch-48);}
 }
 
+// ─── TIMO'S PHOTO ────────────────────────────────────────
+const timoImg=new Image();
+timoImg.src='timo.jpg';
+let timoLoaded=false;
+timoImg.onload=()=>{timoLoaded=true;};
+
 // ─── MENU / GAME OVER ────────────────────────────────────
 function renderMenu(){
   ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,cw,ch);
-  ctx.fillStyle='#e74c3c';ctx.font='bold 64px monospace';ctx.textAlign='center';ctx.fillText('RATBIKE',cw/2,ch/2-130);
-  ctx.fillStyle='#f39c12';ctx.font='bold 20px monospace';ctx.fillText('HELSINKI CYCLING CHAOS',cw/2,ch/2-90);
-  ctx.fillStyle='#666';ctx.font='13px monospace';ctx.fillText('Ideoinut: Timo',cw/2,ch/2-65);
+  ctx.fillStyle='#e74c3c';ctx.font='bold 64px monospace';ctx.textAlign='center';ctx.fillText('RATBIKE',cw/2,ch/2-160);
+  ctx.fillStyle='#f39c12';ctx.font='bold 20px monospace';ctx.fillText('HELSINKI CYCLING CHAOS',cw/2,ch/2-120);
+  // Timo's photo + credit
+  if(timoLoaded){
+    const imgS=80,imgX=cw/2-imgS/2,imgY=ch/2-100;
+    ctx.save();
+    ctx.beginPath();ctx.arc(imgX+imgS/2,imgY+imgS/2,imgS/2,0,TAU);ctx.clip();
+    ctx.drawImage(timoImg,imgX,imgY,imgS,imgS);
+    ctx.restore();
+    ctx.strokeStyle='#f39c12';ctx.lineWidth=3;ctx.beginPath();ctx.arc(cw/2,imgY+imgS/2,imgS/2+2,0,TAU);ctx.stroke();
+    ctx.fillStyle='#ccc';ctx.font='bold 13px monospace';ctx.fillText('Ideoinut: Timo',cw/2,ch/2-5);
+  } else {
+    ctx.fillStyle='#666';ctx.font='13px monospace';ctx.fillText('Ideoinut: Timo',cw/2,ch/2-50);
+  }
   ctx.fillStyle='#888';ctx.font='16px monospace';
-  ctx.fillText('  __o  ',cw/2,ch/2-35);ctx.fillText(' _\\<,_ ',cw/2,ch/2-19);ctx.fillText('(*)/(*)  ',cw/2,ch/2-3);
-  ctx.fillStyle='#fff';ctx.font='18px monospace';ctx.fillText('Paina ENTER aloittaaksesi',cw/2,ch/2+35);
+  ctx.fillText('  __o  ',cw/2,ch/2+20);ctx.fillText(' _\\<,_ ',cw/2,ch/2+36);ctx.fillText('(*)/(*)  ',cw/2,ch/2+52);
+  ctx.fillStyle='#fff';ctx.font='18px monospace';ctx.fillText('Paina ENTER aloittaaksesi',cw/2,ch/2+85);
   ctx.fillStyle='#aaa';ctx.font='14px monospace';
-  ctx.fillText('WASD/Nuolet = Ohjaus | SHIFT = Spurtti | SPACE = Kello',cw/2,ch/2+70);
-  ctx.fillText('Riko liikennesääntöjä ja aiheuta kaaosta Helsingissä!',cw/2,ch/2+95);
-  if(scoring.highScores.length>0){ctx.fillStyle='#f90';ctx.font='bold 16px monospace';ctx.fillText('HIGH SCORES',cw/2,ch/2+135);
-    ctx.fillStyle='#ddd';ctx.font='14px monospace';scoring.highScores.slice(0,5).forEach((hs,i)=>{ctx.fillText(`${i+1}. ${hs.score} (${hs.date})`,cw/2,ch/2+160+i*22);});}
+  ctx.fillText('WASD/Nuolet = Ohjaus | SHIFT = Spurtti | SPACE = Kello',cw/2,ch/2+120);
+  ctx.fillText('Riko liikennesääntöjä ja aiheuta kaaosta Helsingissä!',cw/2,ch/2+145);
+  if(scoring.highScores.length>0){ctx.fillStyle='#f90';ctx.font='bold 16px monospace';ctx.fillText('HIGH SCORES',cw/2,ch/2+185);
+    ctx.fillStyle='#ddd';ctx.font='14px monospace';scoring.highScores.slice(0,5).forEach((hs,i)=>{ctx.fillText(`${i+1}. ${hs.score} (${hs.date})`,cw/2,ch/2+210+i*22);});}
 }
 function renderBusted(){
   ctx.fillStyle='rgba(255,0,0,0.15)';ctx.fillRect(0,0,cw,ch);
