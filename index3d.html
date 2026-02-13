@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RATBIKE 3D - Helsinki Cycling Chaos</title>
+<title>RATBIKE 3D - Helsinki Driving Chaos</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#1a1a2e;overflow:hidden;font-family:'Courier New',monospace;color:#fff}
@@ -48,7 +48,7 @@ canvas{display:block}
   <div id="hud-wanted"><span id="wanted-stars">☆☆☆☆☆</span><div id="hud-wanted-bar"></div></div>
   <div id="hud-speed">0 km/h</div>
   <div id="hud-surface"></div>
-  <div id="hud-hint">WASD/Nuolet - Ohjaus<br>SHIFT - Spurtti<br>SPACE - Soittokello<br><br>Riko liikennesääntöjä!<br>Varo poliisia!</div>
+  <div id="hud-hint">WASD/Nuolet - Ohjaus<br>SHIFT - Kaasu pohjaan<br>SPACE - Tööttää<br><br>Aja hulluna!<br>Varo poliisia!</div>
   <canvas id="minimap" width="140" height="140"></canvas>
 </div>
 <div id="float-container"></div>
@@ -59,7 +59,7 @@ canvas{display:block}
   <div class="credit">Ideoinut: Timo</div>
   <div class="ascii">__o<br>_\&lt;,_<br>(*)/(*)&nbsp;</div>
   <div class="start">Paina ENTER aloittaaksesi</div>
-  <div class="controls">WASD/Nuolet = Ohjaus | SHIFT = Spurtti | SPACE = Kello</div>
+  <div class="controls">WASD/Nuolet = Ohjaus | SHIFT = Kaasu | SPACE = Tööttää</div>
   <div class="desc">Riko liikennesääntöjä ja aiheuta kaaosta Helsingissä!</div>
   <div id="highscores"></div>
 </div>
@@ -79,7 +79,7 @@ canvas{display:block}
 import * as THREE from 'three';
 
 // ══════════════════════════════════════════════════════════
-//  RATBIKE 3D — Helsinki Cycling Chaos
+//  RATBIKE 3D — Helsinki Driving Chaos
 //  Ideoinut: Timo
 // ══════════════════════════════════════════════════════════
 
@@ -411,7 +411,9 @@ function buildWorld(){
 
 // ─── TRAFFIC LIGHTS ──────────────────────────────────────
 const tLights=[];
+const crossings=[];
 function findIntersections(){
+  const cwMat=new THREE.MeshBasicMaterial({color:0xffffff});
   for(let i=0;i<roads.length;i++)for(let j=i+1;j<roads.length;j++){
     for(const p1 of roads[i].pts)for(const p2 of roads[j].pts){
       if(dst(p1[0],p1[1],p2[0],p2[1])<60){
@@ -430,6 +432,31 @@ function findIntersections(){
           scene.add(grp);
           tl.mesh=grp;tl.l1=light1;tl.l2=light2;
           tLights.push(tl);
+          // Build crosswalks at this intersection
+          // Find road angles to place perpendicular crossings
+          const ang1=segAngle(roads[i].pts[0][0],roads[i].pts[0][1],roads[i].pts[Math.min(1,roads[i].pts.length-1)][0],roads[i].pts[Math.min(1,roads[i].pts.length-1)][1]);
+          const hw1=roads[i].w/2,hw2=roads[j].w/2;
+          // Crosswalk across road i (perpendicular to road i direction)
+          const cwOff=hw1+8;
+          const perpX=Math.cos(ang1+Math.PI/2),perpZ=Math.sin(ang1+Math.PI/2);
+          const cw1a={x:mx+perpX*cwOff,y:my+perpZ*cwOff};
+          const cw1b={x:mx-perpX*cwOff,y:my-perpZ*cwOff};
+          crossings.push({fromX:cw1a.x,fromY:cw1a.y,toX:cw1b.x,toY:cw1b.y,tl:tl,pedPhase:2}); // peds cross when phase 2/3
+          crossings.push({fromX:cw1b.x,fromY:cw1b.y,toX:cw1a.x,toY:cw1a.y,tl:tl,pedPhase:2});
+          // 3D crosswalk stripes across road i
+          for(let s=-3;s<=3;s++){
+            const sx=mx+Math.cos(ang1)*s*3;
+            const sz=my+Math.sin(ang1)*s*3;
+            const cq=makeQuad(sx+perpX*cwOff,sz+perpZ*cwOff,sx-perpX*cwOff,sz-perpZ*cwOff,1.2,0.4);
+            if(cq){scene.add(new THREE.Mesh(cq,cwMat));}
+          }
+          // Paint crosswalk on surface grid
+          for(let d=-cwOff;d<=cwOff;d+=GRID_RES){
+            const px=mx+perpX*d,py=my+perpZ*d;
+            for(let s=-4;s<=4;s++){
+              gSet(px+Math.cos(ang1)*s*3,py+Math.sin(ang1)*s*3,Sf.CROSSWALK);
+            }
+          }
         }
       }
     }
@@ -445,167 +472,63 @@ function updateTL(dt){
   });
 }
 
-// ─── PLAYER BICYCLE ──────────────────────────────────────
-const P={x:2500,y:2600,angle:-Math.PI/2,speed:0,radius:7,alive:true,stunTimer:0,bellTimer:0};
-let playerGroup,frontWheel,rearWheel,handlebars,riderBody;
-
-function makeTube(from,to,radius,mat){
-  const dir=new THREE.Vector3().subVectors(to,from);
-  const len=dir.length();
-  const geo=new THREE.CylinderGeometry(radius,radius,len,6);
-  const mesh=new THREE.Mesh(geo,mat);
-  mesh.position.copy(from).add(to).multiplyScalar(0.5);
-  const up=new THREE.Vector3(0,1,0);
-  const q=new THREE.Quaternion().setFromUnitVectors(up,dir.normalize());
-  mesh.quaternion.copy(q);
-  return mesh;
-}
-function buildBicycle(){
+// ─── PLAYER CAR ─────────────────────────────────────────
+const P={x:2500,y:2600,angle:-Math.PI/2,speed:0,radius:14,alive:true,stunTimer:0,hornTimer:0};
+let playerGroup,playerWheels=[],playerBrakes=[];
+function buildPlayerCar(){
   playerGroup=new THREE.Group();
-  const frameMat=new THREE.MeshStandardMaterial({color:0xcc3333,metalness:0.6,roughness:0.3});
-  const chromeMat=new THREE.MeshStandardMaterial({color:0xaaaaaa,metalness:0.8,roughness:0.2});
-  const blackMat=new THREE.MeshStandardMaterial({color:0x222222,roughness:0.7});
+  const bodyMat=new THREE.MeshStandardMaterial({color:0xff4400,metalness:0.4,roughness:0.3});
+  const chromeMat=new THREE.MeshStandardMaterial({color:0xcccccc,metalness:0.9,roughness:0.1});
+  const glassMat=new THREE.MeshStandardMaterial({color:0x6699cc,transparent:true,opacity:0.5,side:THREE.DoubleSide});
   const tireMat=new THREE.MeshStandardMaterial({color:0x111111,roughness:0.9});
-  // Key positions (bike facing +X)
-  const wheelR=3; // wheel radius
-  const rearAxle=new THREE.Vector3(-5,wheelR,0);
-  const frontAxle=new THREE.Vector3(5,wheelR,0);
-  const bb=new THREE.Vector3(-1.5,wheelR+1,0); // bottom bracket (pedals)
-  const seatTop=new THREE.Vector3(-3,wheelR+6,0);
-  const headTop=new THREE.Vector3(4,wheelR+5.5,0);
-  const headBot=new THREE.Vector3(3,wheelR+1.5,0);
-  // Diamond frame: seat tube, top tube, down tube, chain stay, seat stay
-  playerGroup.add(makeTube(bb,seatTop,0.3,frameMat)); // seat tube
-  playerGroup.add(makeTube(seatTop,headTop,0.3,frameMat)); // top tube
-  playerGroup.add(makeTube(bb,headBot,0.3,frameMat)); // down tube
-  playerGroup.add(makeTube(headBot,headTop,0.3,frameMat)); // head tube
-  playerGroup.add(makeTube(rearAxle,bb,0.25,frameMat)); // chain stay L
-  playerGroup.add(makeTube(rearAxle,seatTop,0.25,frameMat)); // seat stay
-  // Front fork (two prongs)
-  const forkTop=new THREE.Vector3(4.5,wheelR+4.5,0);
-  playerGroup.add(makeTube(forkTop,new THREE.Vector3(5,wheelR,0.6),0.2,chromeMat));
-  playerGroup.add(makeTube(forkTop,new THREE.Vector3(5,wheelR,-0.6),0.2,chromeMat));
-  // Wheels - tire + rim + spokes
-  const wheelGeo=new THREE.TorusGeometry(wheelR,0.35,8,24);
-  rearWheel=new THREE.Group();
-  const rearTire=new THREE.Mesh(wheelGeo,tireMat);
-  rearTire.rotation.y=Math.PI/2;rearWheel.add(rearTire);
-  // Rim ring
-  const rimGeo=new THREE.TorusGeometry(wheelR-0.3,0.1,6,24);
-  rearWheel.add(new THREE.Mesh(rimGeo.clone(),chromeMat).rotateY(Math.PI/2));
-  // Spokes (thin lines)
-  for(let i=0;i<12;i++){
-    const a=i*Math.PI*2/12;
-    const sx=Math.cos(a)*(wheelR-0.4),sy=Math.sin(a)*(wheelR-0.4);
-    const spoke=makeTube(new THREE.Vector3(0,0,0),new THREE.Vector3(sx,sy,0),0.04,chromeMat);
-    rearWheel.add(spoke);
-  }
-  // Hub
-  rearWheel.add(new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,1.2,8),chromeMat).rotateX(Math.PI/2));
-  rearWheel.position.copy(rearAxle);
-  playerGroup.add(rearWheel);
-
-  frontWheel=new THREE.Group();
-  const frontTire=new THREE.Mesh(wheelGeo.clone(),tireMat);
-  frontTire.rotation.y=Math.PI/2;frontWheel.add(frontTire);
-  frontWheel.add(new THREE.Mesh(rimGeo.clone(),chromeMat).rotateY(Math.PI/2));
-  for(let i=0;i<12;i++){
-    const a=i*Math.PI*2/12;
-    const sx=Math.cos(a)*(wheelR-0.4),sy=Math.sin(a)*(wheelR-0.4);
-    frontWheel.add(makeTube(new THREE.Vector3(0,0,0),new THREE.Vector3(sx,sy,0),0.04,chromeMat));
-  }
-  frontWheel.add(new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,1.2,8),chromeMat).rotateX(Math.PI/2));
-  frontWheel.position.copy(frontAxle);
-  playerGroup.add(frontWheel);
-
-  // Handlebars
-  handlebars=new THREE.Group();
-  const stem=makeTube(new THREE.Vector3(0,0,0),new THREE.Vector3(0.5,2,0),0.15,chromeMat);
-  handlebars.add(stem);
-  // Crossbar
-  const hbar=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,5,6),chromeMat);
-  hbar.rotation.x=Math.PI/2;hbar.position.set(0.5,2,0);handlebars.add(hbar);
-  // Grips
-  const gripMat=new THREE.MeshStandardMaterial({color:0x444444,roughness:0.9});
-  const gripL=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,1,6),gripMat);
-  gripL.rotation.x=Math.PI/2;gripL.position.set(0.5,2,2.8);handlebars.add(gripL);
-  const gripR=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,1,6),gripMat);
-  gripR.rotation.x=Math.PI/2;gripR.position.set(0.5,2,-2.8);handlebars.add(gripR);
-  handlebars.position.copy(forkTop);
-  playerGroup.add(handlebars);
-
-  // Seat
-  const seatGeo=new THREE.BoxGeometry(2.5,0.4,1.8);
-  seatGeo.translate(0,0,0);
-  const seat=new THREE.Mesh(seatGeo,blackMat);
-  seat.position.set(seatTop.x,seatTop.y+0.3,0);
-  playerGroup.add(seat);
-
-  // Pedals + cranks
-  const crankLen=1.8;
-  const pedalMat=new THREE.MeshStandardMaterial({color:0x666666,metalness:0.5});
-  const crankL=makeTube(bb,new THREE.Vector3(bb.x,bb.y-crankLen,0.8),0.12,chromeMat);
-  playerGroup.add(crankL);
-  const crankR=makeTube(bb,new THREE.Vector3(bb.x,bb.y+crankLen,-0.8),0.12,chromeMat);
-  playerGroup.add(crankR);
-  const pedalL=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.15,0.8),pedalMat);
-  pedalL.position.set(bb.x,bb.y-crankLen,0.8);playerGroup.add(pedalL);
-  const pedalR=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.15,0.8),pedalMat);
-  pedalR.position.set(bb.x,bb.y+crankLen,-0.8);playerGroup.add(pedalR);
-
-  // Chain (visual only - thin torus between bb and rear axle)
-  const chainDist=bb.distanceTo(rearAxle);
-  const chainMid=new THREE.Vector3().addVectors(bb,rearAxle).multiplyScalar(0.5);
-  const chainGeo=new THREE.TorusGeometry(chainDist/2,0.08,4,16,Math.PI);
-  const chain=new THREE.Mesh(chainGeo,new THREE.MeshStandardMaterial({color:0x555555,metalness:0.4}));
-  chain.position.copy(chainMid);
-  chain.rotation.z=Math.atan2(rearAxle.y-bb.y,rearAxle.x-bb.x);
-  chain.rotation.y=Math.PI/2;
-  playerGroup.add(chain);
-
-  // ── RIDER ──
-  const riderGrp=new THREE.Group();
-  riderBody=riderGrp;
-  const skinMat=new THREE.MeshStandardMaterial({color:0xf5c6a0});
-  const shirtMat=new THREE.MeshStandardMaterial({color:0xe74c3c});
-  const pantsMat=new THREE.MeshStandardMaterial({color:0x334455});
-  // Torso (leaning forward)
-  const torso=new THREE.Mesh(new THREE.CylinderGeometry(1.2,1,4,8),shirtMat);
-  torso.position.set(-0.5,seatTop.y+3,0);
-  torso.rotation.z=0.3; // lean forward
-  riderGrp.add(torso);
-  // Head
-  const head=new THREE.Mesh(new THREE.SphereGeometry(1.2,8,8),skinMat);
-  head.position.set(0.8,seatTop.y+5.8,0);
-  riderGrp.add(head);
-  // Arms reaching to handlebars
-  const armMat=shirtMat;
-  const shoulderL=new THREE.Vector3(-0.2,seatTop.y+4.5,1.2);
-  const handL=new THREE.Vector3(handlebars.position.x+0.5,handlebars.position.y+2,2.2);
-  riderGrp.add(makeTube(shoulderL,handL,0.3,armMat));
-  const shoulderR=new THREE.Vector3(-0.2,seatTop.y+4.5,-1.2);
-  const handR=new THREE.Vector3(handlebars.position.x+0.5,handlebars.position.y+2,-2.2);
-  riderGrp.add(makeTube(shoulderR,handR,0.3,armMat));
-  // Upper legs (seat to knees area)
-  const hipY=seatTop.y+0.5;
-  const kneeY=bb.y+1;
-  const legUL=makeTube(new THREE.Vector3(-2.5,hipY,0.8),new THREE.Vector3(-1,kneeY,0.8),0.4,pantsMat);
-  riderGrp.add(legUL);
-  const legUR=makeTube(new THREE.Vector3(-2.5,hipY,-0.8),new THREE.Vector3(-1,kneeY,-0.8),0.4,pantsMat);
-  riderGrp.add(legUR);
-  // Lower legs (knees to pedals)
-  const legLL=makeTube(new THREE.Vector3(-1,kneeY,0.8),new THREE.Vector3(bb.x,bb.y-crankLen+0.3,0.8),0.35,pantsMat);
-  riderGrp.add(legLL);
-  const legLR=makeTube(new THREE.Vector3(-1,kneeY,-0.8),new THREE.Vector3(bb.x,bb.y+crankLen-0.3,-0.8),0.35,pantsMat);
-  riderGrp.add(legLR);
-  // Shoes
-  const shoeMat=new THREE.MeshStandardMaterial({color:0x222222});
-  const shoeL=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.5,0.8),shoeMat);
-  shoeL.position.set(bb.x+0.3,bb.y-crankLen,0.8);riderGrp.add(shoeL);
-  const shoeR=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.5,0.8),shoeMat);
-  shoeR.position.set(bb.x+0.3,bb.y+crankLen,-0.8);riderGrp.add(shoeR);
-
-  playerGroup.add(riderGrp);
+  const lightMat=new THREE.MeshStandardMaterial({color:0xffffcc,emissive:0xffffaa,emissiveIntensity:0.5});
+  const tailMat=new THREE.MeshStandardMaterial({color:0xff0000,emissive:0xff0000,emissiveIntensity:0.3});
+  // Body (facing +X)
+  const body=new THREE.Mesh(new THREE.BoxGeometry(26,5,13),bodyMat);
+  body.position.y=3.5;playerGroup.add(body);
+  // Roof
+  const roof=new THREE.Mesh(new THREE.BoxGeometry(14,3.5,11),bodyMat);
+  roof.position.set(-1,8,0);playerGroup.add(roof);
+  // Windshield (front)
+  const ws=new THREE.Mesh(new THREE.PlaneGeometry(4,10),glassMat);
+  ws.position.set(6,7,0);ws.rotation.y=Math.PI/2;ws.rotation.x=0;playerGroup.add(ws);
+  // Rear window
+  const rw=new THREE.Mesh(new THREE.PlaneGeometry(3.5,10),glassMat);
+  rw.position.set(-8,7,0);rw.rotation.y=Math.PI/2;playerGroup.add(rw);
+  // Side windows
+  const swL=new THREE.Mesh(new THREE.PlaneGeometry(12,3),glassMat);
+  swL.position.set(-1,8,5.6);playerGroup.add(swL);
+  const swR=new THREE.Mesh(new THREE.PlaneGeometry(12,3),glassMat);
+  swR.position.set(-1,8,-5.6);playerGroup.add(swR);
+  // Headlights
+  const hlL=new THREE.Mesh(new THREE.SphereGeometry(0.8,8,8),lightMat);
+  hlL.position.set(13,3.5,4);playerGroup.add(hlL);
+  const hlR=new THREE.Mesh(new THREE.SphereGeometry(0.8,8,8),lightMat);
+  hlR.position.set(13,3.5,-4);playerGroup.add(hlR);
+  // Taillights
+  const tlL=new THREE.Mesh(new THREE.BoxGeometry(0.5,1.5,2),tailMat);
+  tlL.position.set(-13,3.5,4.5);playerGroup.add(tlL);
+  const tlR=new THREE.Mesh(new THREE.BoxGeometry(0.5,1.5,2),tailMat);
+  tlR.position.set(-13,3.5,-4.5);playerGroup.add(tlR);
+  playerBrakes=[tlL,tlR];
+  // Bumpers
+  const fBumper=new THREE.Mesh(new THREE.BoxGeometry(1,2,13),chromeMat);
+  fBumper.position.set(13.5,2,0);playerGroup.add(fBumper);
+  const rBumper=new THREE.Mesh(new THREE.BoxGeometry(1,2,13),chromeMat);
+  rBumper.position.set(-13.5,2,0);playerGroup.add(rBumper);
+  // Wheels (4 wheels)
+  const wheelGeo=new THREE.CylinderGeometry(2,2,1.5,12);
+  const positions=[{x:8,z:6},{x:8,z:-6},{x:-8,z:6},{x:-8,z:-6}];
+  playerWheels=[];
+  positions.forEach(p=>{
+    const wheel=new THREE.Mesh(wheelGeo,tireMat);
+    wheel.rotation.z=Math.PI/2;wheel.position.set(p.x,2,p.z);
+    // Hub cap
+    const hub=new THREE.Mesh(new THREE.CylinderGeometry(1,1,0.2,8),chromeMat);
+    hub.position.set(p.x,2,p.z>0?p.z+0.8:p.z-0.8);hub.rotation.x=Math.PI/2;
+    playerGroup.add(wheel);playerGroup.add(hub);
+    playerWheels.push(wheel);
+  });
   playerGroup.castShadow=true;
   playerGroup.traverse(c=>{if(c.isMesh){c.castShadow=true;}});
   scene.add(playerGroup);
@@ -615,46 +538,45 @@ function updatePlayer(dt){
   if(!P.alive)return;
   if(P.stunTimer>0){P.stunTimer-=dt;P.speed*=0.95;}
   const stunned=P.stunTimer>0,sprint=keys.ShiftLeft||keys.ShiftRight;
-  const maxSpd=sprint?320:220,acc=sprint?420:280;
+  const maxSpd=sprint?450:300,acc=sprint?500:350;
+  let braking=false;
   if(!stunned){
     if(keys.ArrowUp||keys.KeyW)P.speed=Math.min(P.speed+acc*dt,maxSpd);
-    else if(keys.ArrowDown||keys.KeyS)P.speed=Math.max(P.speed-350*dt,-80);
-    else{if(P.speed>0)P.speed=Math.max(0,P.speed-60*dt);else if(P.speed<0)P.speed=Math.min(0,P.speed+60*dt);}
+    else if(keys.ArrowDown||keys.KeyS){P.speed=Math.max(P.speed-500*dt,-60);braking=true;}
+    else{if(P.speed>0)P.speed=Math.max(0,P.speed-40*dt);else if(P.speed<0)P.speed=Math.min(0,P.speed+40*dt);}
   }
   let steerInput=0;
   if(!stunned){
-    const sf=clamp(Math.abs(P.speed)/maxSpd,0,1),tr=lerp(3.2,0.7,sf);
+    const sf=clamp(Math.abs(P.speed)/maxSpd,0,1),tr=lerp(2.0,0.5,sf);
     if(keys.ArrowLeft||keys.KeyA){P.angle-=tr*dt*(P.speed<0?-1:1);steerInput=-1;}
     if(keys.ArrowRight||keys.KeyD){P.angle+=tr*dt*(P.speed<0?-1:1);steerInput=1;}
   }
-  if(keys.Space&&P.bellTimer<=0){
-    P.bellTimer=0.4;audioPlay('bell');
-    peds.forEach(p=>{if(dst(p.x,p.y,P.x,P.y)<120){p.fleeTimer=2;p.fleeX=p.x+(p.x-P.x);p.fleeY=p.y+(p.y-P.y);addScore(30,'KELLO!',p.x,p.y);scoring.addWanted(0.5);}});
+  // Horn
+  if(keys.Space&&P.hornTimer<=0){
+    P.hornTimer=0.6;audioPlay('horn');
+    peds.forEach(p=>{if(dst(p.x,p.y,P.x,P.y)<150){p.fleeTimer=2;p.fleeX=p.x+(p.x-P.x);p.fleeY=p.y+(p.y-P.y);addScore(20,'TÖÖT!',p.x,p.y);scoring.addWanted(0.3);}});
   }
-  P.bellTimer-=dt;
+  P.hornTimer-=dt;
   const dx=Math.cos(P.angle)*P.speed*dt,dy=Math.sin(P.angle)*P.speed*dt;
   const nx=P.x+dx,ny=P.y+dy,surf=gGet(nx,ny);
-  if(surf===Sf.BUILDING){P.speed*=-0.3;P.stunTimer=0.3;spawnSparks(nx,4,ny);audioPlay('hit');}
+  if(surf===Sf.BUILDING){P.speed*=-0.3;P.stunTimer=0.3;spawnSparks(nx,4,ny);audioPlay('crash');}
   else if(surf===Sf.WATER){P.speed*=0.2;}
   else{P.x=nx;P.y=ny;}
-  if(surf===Sf.PARK)P.speed*=(1-0.5*dt);
+  if(surf===Sf.PARK)P.speed*=(1-0.3*dt);
   P.x=clamp(P.x,50,W-50);P.y=clamp(P.y,50,H-50);
   // Update 3D model
   if(playerGroup){
     playerGroup.position.set(P.x,0,P.y);
     playerGroup.rotation.y=-P.angle;
-    // Wheel rotation (Groups spin around Z = axle direction)
-    const wheelRot=P.speed*dt*0.15;
-    if(frontWheel)frontWheel.rotation.z+=wheelRot;
-    if(rearWheel)rearWheel.rotation.z+=wheelRot;
-    // Handlebar turning
-    if(handlebars)handlebars.rotation.y=steerInput*0.4;
-    // Rider lean
-    if(riderBody){
-      const speedFactor=clamp(Math.abs(P.speed)/maxSpd,0,1);
-      riderBody.rotation.z=-steerInput*0.15*speedFactor;
-      riderBody.rotation.x=speedFactor*0.1; // Lean forward when fast
-    }
+    // Wheel spin
+    const wheelRot=P.speed*dt*0.08;
+    playerWheels.forEach(w=>{w.rotation.y+=wheelRot;});
+    // Brake lights
+    const brakeIntensity=braking?1:0;
+    playerBrakes.forEach(b=>{b.material.emissiveIntensity=braking?0.8:0.3;});
+    // Body roll on turns
+    const speedFactor=clamp(Math.abs(P.speed)/maxSpd,0,1);
+    playerGroup.rotation.z=-steerInput*0.04*speedFactor;
   }
 }
 
@@ -662,7 +584,7 @@ function updatePlayer(dt){
 const camTarget=new THREE.Vector3();
 const camLook=new THREE.Vector3();
 function updateCamera(dt){
-  const behind=-180,height=130,lookAhead=40;
+  const behind=-250,height=150,lookAhead=80;
   const tx=P.x-Math.cos(P.angle)*behind;
   const tz=P.y-Math.sin(P.angle)*behind;
   const target=new THREE.Vector3(tx,height,tz);
@@ -736,7 +658,9 @@ function spawnPed(){
     if(s===Sf.SIDEWALK||s===Sf.SQUARE||s===Sf.PARK){
       const col=choice(PED_COL);
       const mesh=getMesh(pedPool,createPedMesh,col);
-      peds.push({x,y,angle:rand(0,TAU),speed:rand(15,35),color:col,radius:4,fleeTimer:0,fleeX:0,fleeY:0,knockVx:0,knockVy:0,knockTimer:0,mesh});
+      peds.push({x,y,angle:rand(0,TAU),speed:rand(15,35),color:col,radius:4,
+        fleeTimer:0,fleeX:0,fleeY:0,knockVx:0,knockVy:0,knockTimer:0,
+        crossing:false,crossTx:0,crossTy:0,crossWait:0,mesh});
       return;
     }
   }
@@ -745,12 +669,37 @@ function updatePeds(dt){
   peds.forEach(p=>{
     if(p.knockTimer>0){p.knockTimer-=dt;p.x+=p.knockVx*dt;p.y+=p.knockVy*dt;p.knockVx*=0.95;p.knockVy*=0.95;}
     else if(p.fleeTimer>0){p.fleeTimer-=dt;const a=Math.atan2(p.fleeY-p.y,p.fleeX-p.x);p.x+=Math.cos(a)*60*dt;p.y+=Math.sin(a)*60*dt;p.angle=a;}
+    else if(p.crossing){
+      // Walking across crosswalk
+      const a=Math.atan2(p.crossTy-p.y,p.crossTx-p.x);
+      p.x+=Math.cos(a)*40*dt;p.y+=Math.sin(a)*40*dt;p.angle=a;
+      if(dst(p.x,p.y,p.crossTx,p.crossTy)<5){p.crossing=false;p.angle=a+rand(-0.5,0.5);}
+    }
     else{
+      // Normal sidewalk walking
       p.x+=Math.cos(p.angle)*p.speed*dt;p.y+=Math.sin(p.angle)*p.speed*dt;
       const s=gGet(p.x,p.y);
-      if(s===Sf.BUILDING||s===Sf.WATER||p.x<50||p.x>W-50||p.y<50||p.y>H-50){p.angle+=Math.PI+rand(-0.5,0.5);p.x+=Math.cos(p.angle)*10;p.y+=Math.sin(p.angle)*10;}
+      // Stay on sidewalk/park/square - avoid road, building, water
+      if(s===Sf.BUILDING||s===Sf.WATER||s===Sf.ROAD||p.x<50||p.x>W-50||p.y<50||p.y>H-50){
+        p.angle+=Math.PI+rand(-0.5,0.5);p.x+=Math.cos(p.angle)*10;p.y+=Math.sin(p.angle)*10;
+      }
       if(Math.random()<0.01)p.angle+=rand(-0.8,0.8);
-      if(dst(p.x,p.y,P.x,P.y)<60&&Math.abs(P.speed)>60){p.fleeTimer=1.5;p.fleeX=p.x+(p.x-P.x)*2;p.fleeY=p.y+(p.y-P.y)*2;}
+      // Check for nearby crossing - sometimes cross the road
+      if(Math.random()<0.005&&crossings.length>0){
+        let nearest=null,nd=Infinity;
+        crossings.forEach(c=>{
+          const d=dst(p.x,p.y,c.fromX,c.fromY);
+          if(d<40&&d<nd){
+            // Check if light is green for pedestrians
+            if(c.tl.phase===c.pedPhase||c.tl.phase===c.pedPhase+1){nd=d;nearest=c;}
+          }
+        });
+        if(nearest){p.crossing=true;p.crossTx=nearest.toX;p.crossTy=nearest.toY;}
+      }
+      // Flee from player car if approaching fast
+      if(dst(p.x,p.y,P.x,P.y)<80&&Math.abs(P.speed)>80){
+        p.fleeTimer=1.5;p.fleeX=p.x+(p.x-P.x)*2;p.fleeY=p.y+(p.y-P.y)*2;
+      }
     }
     if(p.mesh){p.mesh.position.set(p.x,0,p.y);p.mesh.rotation.y=-p.angle;}
     if(p.knockTimer>0&&p.mesh)p.mesh.position.y=2+Math.sin(p.knockTimer*5)*3;
@@ -790,7 +739,7 @@ function updateCars(dt){
   for(let i=carArr.length-1;i>=0;i--){
     if(dst(carArr[i].x,carArr[i].y,P.x,P.y)>700){retMesh(carPool,carArr[i].mesh);carArr.splice(i,1);}
   }
-  while(carArr.length<15)spawnCar();
+  while(carArr.length<6)spawnCar();
 }
 
 // ─── POLICE (AI from 2D) ────────────────────────────────
@@ -831,7 +780,7 @@ function updateCops(dt){
         c.mesh.userData.siren2.material.emissiveIntensity=fl?0.2:2;
       }
     }
-    if(dst(c.x,c.y,P.x,P.y)<(c.type==='bike'?22:27)&&(Math.abs(P.speed)<50||c.type==='car')){
+    if(dst(c.x,c.y,P.x,P.y)<(c.type==='bike'?25:30)&&(Math.abs(P.speed)<60||c.type==='car')){
       game.state='busted';audioPlay('busted');stopBGM();
     }
   });
@@ -845,17 +794,17 @@ function checkCollisions(){
     if(p.knockTimer>0)return;
     const dx=p.x-P.x,dy=p.y-P.y,md=P.radius+p.radius;
     if(Math.abs(dx)>md||Math.abs(dy)>md)return;
-    if(dx*dx+dy*dy<md*md&&pspdAbs>20){
-      const a=Math.atan2(dy,dx),f=pspdAbs*0.8;
-      p.knockVx=Math.cos(a)*f+P.speed*Math.cos(P.angle)*0.5;
-      p.knockVy=Math.sin(a)*f+P.speed*Math.sin(P.angle)*0.5;
-      p.knockTimer=1.5;P.speed*=0.7;
-      addScore(Math.floor(150+pspdAbs),'TÖRMÄYS!',p.x,p.y);
+    if(dx*dx+dy*dy<md*md&&pspdAbs>15){
+      const a=Math.atan2(dy,dx),f=pspdAbs*1.2;
+      p.knockVx=Math.cos(a)*f+P.speed*Math.cos(P.angle)*0.8;
+      p.knockVy=Math.sin(a)*f+P.speed*Math.sin(P.angle)*0.8;
+      p.knockTimer=2;P.speed*=0.92;
+      addScore(Math.floor(200+pspdAbs*1.5),'TÖRMÄYS!',p.x,p.y);
       scoring.addWanted(3);audioPlay('hitPed');
-      // Blood & gibs
+      // Blood & gibs - car hits harder
       if(p.mesh)p.mesh.visible=false;
-      spawnGibs(p.x,0,p.y,p.color,P.angle,f*0.7);
-      spawnBlood(p.x,3,p.y,20);
+      spawnGibs(p.x,0,p.y,p.color,P.angle,f);
+      spawnBlood(p.x,3,p.y,25);
       spawnBloodDecal(p.x,p.y);
     }
   });
@@ -863,10 +812,12 @@ function checkCollisions(){
     const dx=c.x-P.x,dy=c.y-P.y,md=P.radius+c.radius;
     if(Math.abs(dx)>md||Math.abs(dy)>md)return;
     if(dx*dx+dy*dy<md*md&&pspdAbs>10){
-      P.stunTimer=1;P.speed*=-0.5;
-      const a=Math.atan2(P.y-c.y,P.x-c.x);P.x+=Math.cos(a)*20;P.y+=Math.sin(a)*20;
-      addScore(50,'AUTO!',c.x,c.y);scoring.addWanted(1);
-      spawnSparks((P.x+c.x)/2,4,(P.y+c.y)/2);audioPlay('crash');
+      P.stunTimer=0.5;P.speed*=-0.4;
+      const a=Math.atan2(P.y-c.y,P.x-c.x);P.x+=Math.cos(a)*25;P.y+=Math.sin(a)*25;
+      // Push NPC car away too
+      c.x-=Math.cos(a)*30;c.y-=Math.sin(a)*30;c.speed*=-0.3;
+      addScore(80,'KOLARI!',c.x,c.y);scoring.addWanted(2);
+      spawnSparks((P.x+c.x)/2,4,(P.y+c.y)/2,15);audioPlay('crash');
     }
   });
 }
@@ -883,7 +834,7 @@ const scoring={
     }
     if(this.wantedProgress<0){this.wantedProgress=0;if(this.wantedLevel>0){this.wantedLevel--;this.wantedProgress=10;}}
     const surf=gGet(P.x,P.y),spd=Math.abs(P.speed);
-    if(surf===Sf.SIDEWALK&&spd>20){this.swTimer+=dt;if(this.swTimer>0.5){this.swTimer=0;addScore(10,'JALKAKÄYTÄVÄ',P.x,P.y-20);this.addWanted(0.3);}}else this.swTimer=0;
+    if(surf===Sf.SIDEWALK&&spd>15){this.swTimer+=dt;if(this.swTimer>0.5){this.swTimer=0;addScore(25,'JALKAKÄYTÄVÄ!',P.x,P.y-20);this.addWanted(0.5);}}else this.swTimer=0;
     if(surf===Sf.PARK&&spd>30){addScore(5,'PUISTO',P.x,P.y-20);this.addWanted(0.1);}
     this.lastRL-=dt;
     if(spd>30)tLights.forEach(tl=>{if(dst(P.x,P.y,tl.x,tl.y)<25&&this.lastRL<=0&&(tl.phase===2||tl.phase===3)){addScore(100,'PUNAISIA PÄIN!',tl.x,tl.y-20);this.addWanted(2);this.lastRL=3;audioPlay('violation');}});
@@ -1042,6 +993,8 @@ function audioPlay(type){
   if(!aC)return;const t=aC.currentTime,g=aC.createGain(),o=aC.createOscillator();g.connect(aC.destination);o.connect(g);
   switch(type){
     case'bell':o.type='sine';o.frequency.setValueAtTime(1200,t);o.frequency.exponentialRampToValueAtTime(800,t+0.15);g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.2);o.start(t);o.stop(t+0.2);break;
+    case'horn':o.type='sawtooth';o.frequency.setValueAtTime(180,t);o.frequency.setValueAtTime(220,t+0.05);g.gain.setValueAtTime(0.18,t);g.gain.setValueAtTime(0.18,t+0.4);g.gain.exponentialRampToValueAtTime(0.001,t+0.5);o.start(t);o.stop(t+0.5);
+      const ho=aC.createOscillator(),hg=aC.createGain();ho.type='sawtooth';ho.frequency.setValueAtTime(277,t);ho.frequency.setValueAtTime(330,t+0.05);hg.gain.setValueAtTime(0.1,t);hg.gain.setValueAtTime(0.1,t+0.4);hg.gain.exponentialRampToValueAtTime(0.001,t+0.5);ho.connect(hg);hg.connect(aC.destination);ho.start(t);ho.stop(t+0.5);break;
     case'hitPed':o.type='sawtooth';o.frequency.value=200;g.gain.setValueAtTime(0.12,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.15);o.start(t);o.stop(t+0.15);
       // "Yayy!" rising cheerful sound
       const yo=aC.createOscillator(),yg=aC.createGain();yo.type='sine';
@@ -1247,7 +1200,7 @@ function hideOverlays(){menuScreen.style.display='none';bustedScreen.style.displ
 const game={
   state:'menu',playTime:0,lastTime:0,
   init(){
-    scoring.loadHS();buildGrid();buildWorld();findIntersections();buildBicycle();
+    scoring.loadHS();buildGrid();buildWorld();findIntersections();buildPlayerCar();
     showMenu();
     this.lastTime=performance.now();
     renderer.setAnimationLoop(t=>this.loop(t));
